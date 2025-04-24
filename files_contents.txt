@@ -1,0 +1,2513 @@
+========== lib/main.dart ==========
+// lib/main.dart
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+import 'src/app.dart';
+import 'src/services/api_service.dart';
+import 'src/providers/auth_provider.dart';
+import 'src/providers/farm_provider.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // use `10.0.2.2` for Android emulator → maps to localhost of host machine
+  final apiService = ApiService(baseUrl: 'http://localhost:3000');
+
+  runApp(
+    MultiProvider(
+      providers: [
+        // 1) Make ApiService available throughout the widget tree
+        Provider<ApiService>.value(value: apiService),
+
+        // 2) User auth + token
+        ChangeNotifierProvider(
+          create: (_) => AuthProvider(apiService: apiService),
+        ),
+
+        // 3) FarmProvider depends on AuthProvider for the token
+        ChangeNotifierProxyProvider<AuthProvider, FarmProvider>(
+          create: (_) => FarmProvider(apiService: apiService, token: ''),
+          update: (_, auth, farm) => farm!..updateToken(auth.token ?? ''),
+        ),
+      ],
+      // Pass the apiService into HydroleafApp
+      child: HydroleafApp(apiService: apiService),
+    ),
+  );
+}
+
+
+========== lib/src/app.dart ==========
+// lib/src/app.dart
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'routes.dart';
+
+class HydroleafApp extends StatelessWidget {
+  final ApiService apiService;
+  const HydroleafApp({Key? key, required this.apiService}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenUtilInit(
+      designSize: const Size(375, 812),
+      minTextAdapt: true,
+      builder: (_, __) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Hydroleaf',
+        theme: ThemeData(
+          textTheme: GoogleFonts.poppinsTextTheme(
+            Theme.of(context).textTheme,
+          ),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF00A86B),
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
+        ),
+        initialRoute: Routes.login,
+        onGenerateRoute: AppRouter.generateRoute,
+      ),
+    );
+  }
+}
+
+
+========== lib/src/routes.dart ==========
+/// lib/src/routes.dart
+
+import 'package:flutter/material.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+// Screens
+import 'ui/screens/login_screen.dart';
+import 'ui/screens/register_screen.dart';
+import 'ui/screens/dashboard_screen.dart';
+import 'ui/screens/farm_list_screen.dart';
+import 'ui/screens/register_farm_screen.dart';
+import 'ui/screens/farm_detail_screen.dart';
+import 'ui/screens/device_list_screen.dart';
+import 'ui/screens/register_device_screen.dart';
+import 'ui/screens/device_detail_screen.dart';
+import 'ui/screens/sensor_screen.dart';
+import 'ui/screens/dosing_screen.dart';
+import 'ui/screens/settings_screen.dart';
+
+abstract class Routes {
+  static const String login = '/';
+  static const String register = '/register';
+  static const String dashboard = '/dashboard';
+  static const String farmList = '/farms';
+  static const String registerFarm = '/farms/register';
+  static const String farmDetail = '/farms/detail';
+  static const String deviceList = '/devices';
+  static const String registerDevice = '/devices/register';
+  static const String deviceDetail = '/devices/detail';
+  static const String sensor = '/devices/sensor';
+  static const String dosing = '/devices/dosing';
+  static const String settings = '/settings';
+}
+
+class AppRouter {
+  static Route<dynamic> generateRoute(RouteSettings settings) {
+    final args = settings.arguments as Map<String, dynamic>? ?? {};
+
+    switch (settings.name) {
+      case Routes.login:
+        return MaterialPageRoute(builder: (_) => const LoginScreen());
+
+      case Routes.register:
+        return MaterialPageRoute(
+          builder: (_) => RegisterScreen(
+            apiService: args['apiService'] as ApiService,
+          ),
+        );
+
+      case Routes.dashboard:
+        return MaterialPageRoute(builder: (_) => const DashboardScreen());
+
+      case Routes.farmList:
+        // FarmListScreen has no ctor params
+        return MaterialPageRoute(builder: (_) => const FarmListScreen());
+
+      case Routes.registerFarm:
+        return MaterialPageRoute(
+          builder: (_) => RegisterFarmScreen(
+            apiService: args['apiService'] as ApiService,
+            token: args['token'] as String,
+          ),
+        );
+
+      case Routes.farmDetail:
+        return MaterialPageRoute(
+          builder: (_) => FarmDetailScreen(
+            farmId: args['farmId'] as int,
+          ),
+        );
+
+      case Routes.deviceList:
+        return MaterialPageRoute(
+          builder: (_) => DeviceListScreen(
+            apiService: args['apiService'] as ApiService,
+            token: args['token'] as String,
+          ),
+        );
+
+      case Routes.registerDevice:
+        return MaterialPageRoute(
+          builder: (_) => RegisterDeviceScreen(
+            apiService: args['apiService'] as ApiService,
+            token: args['token'] as String,
+          ),
+        );
+
+      case Routes.deviceDetail:
+        return MaterialPageRoute(
+          builder: (_) => DeviceDetailScreen(
+            api: args['apiService']
+                as ApiService, // <— use `api:`, not `apiService:`
+            token: args['token'] as String,
+            device: args['device'] as DeviceResponse,
+          ),
+        );
+
+      case Routes.sensor:
+        return MaterialPageRoute(
+          builder: (_) => SensorScreen(
+            api: args['apiService'] as ApiService,
+            token: args['token'] as String,
+            device: args['device'] as DeviceResponse,
+          ),
+        );
+
+      case Routes.dosing:
+        return MaterialPageRoute(
+          builder: (_) => DosingScreen(
+            api: args['apiService'] as ApiService,
+            token: args['token'] as String,
+            deviceId: args['deviceId'] as int,
+          ),
+        );
+
+      case Routes.settings:
+        return MaterialPageRoute(builder: (_) => const SettingsScreen());
+
+      default:
+        return MaterialPageRoute(
+          builder: (_) => const Scaffold(
+            body: Center(child: Text('No route defined for this path')),
+          ),
+        );
+    }
+  }
+}
+
+
+========== lib/src/ui/screens/dashboard_screen.dart ==========
+// lib/src/ui/screens/dashboard_screen.dart
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/providers/auth_provider.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:provider/provider.dart';
+import 'farm_list_screen.dart';
+import '../widgets/summary_card.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({Key? key}) : super(key: key);
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  late Future<void> _statsFuture;
+  int _farmCount = 0;
+  int _deviceCount = 0;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _statsFuture = _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    final api = context.read<ApiService>();
+    final token = context.read<AuthProvider>().token!;
+    try {
+      final farms = await api.fetchFarms(token);
+      final devices = await api.fetchDevices(token);
+      setState(() {
+        _farmCount = farms.length;
+        _deviceCount = devices.length;
+      });
+    } catch (e) {
+      setState(() => _error = 'Failed to load stats');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Dashboard')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: FutureBuilder(
+          future: _statsFuture,
+          builder: (ctx, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (_error != null) {
+              return Center(child: Text(_error!));
+            }
+            return Column(
+              children: [
+                SummaryCard(
+                  title: 'Total Farms',
+                  value: '$_farmCount',
+                  icon: Icons.agriculture,
+                ),
+                SizedBox(height: 16.h),
+                SummaryCard(
+                  title: 'Active Devices',
+                  value: '$_deviceCount',
+                  icon: Icons.memory,
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.list),
+                  label: const Text('Manage Farms'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: Size(double.infinity, 48.h),
+                  ),
+                  onPressed: () =>
+                      Navigator.pushNamed(context, Routes.farmList),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/device_detail_screen.dart ==========
+// lib/src/screens/device_detail_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+class DeviceDetailScreen extends StatelessWidget {
+  static const routeName = Routes.deviceDetail;
+
+  final ApiService api;
+  final String token;
+  final DeviceResponse device;
+
+  const DeviceDetailScreen({
+    Key? key,
+    required this.api,
+    required this.token,
+    required this.device,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(device.name),
+      ),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InfoRow(label: 'ID', value: device.id.toString()),
+            InfoRow(label: 'Type', value: device.type.toApi()),
+            InfoRow(label: 'Endpoint', value: device.httpEndpoint),
+            InfoRow(
+                label: 'Location', value: device.locationDescription ?? '—'),
+            InfoRow(label: 'Active', value: device.isActive ? 'Yes' : 'No'),
+            InfoRow(label: 'Firmware', value: device.firmwareVersion ?? '—'),
+            InfoRow(
+              label: 'Last Seen',
+              value: device.lastSeen != null
+                  ? device.lastSeen!.toLocal().toString()
+                  : 'Never',
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.sensors),
+                    label: const Text('Sensor'),
+                    onPressed: () {
+                      Navigator.pushNamed(
+                        context,
+                        Routes.sensor,
+                        arguments: {
+                          'api': api,
+                          'token': token,
+                          'deviceId': device.id,
+                        },
+                      );
+                    },
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.local_drink),
+                    label: const Text('Dosing'),
+                    onPressed: () {
+                      Navigator.pushNamed(
+                        context,
+                        Routes.dosing,
+                        arguments: {
+                          'api': api,
+                          'token': token,
+                          'device': device,
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const InfoRow({Key? key, required this.label, required this.value})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 6.h),
+      child: Row(
+        children: [
+          SizedBox(
+              width: 100.w,
+              child: Text('$label:',
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/device_list_screen.dart ==========
+// lib/src/screens/device_list_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+class DeviceListScreen extends StatefulWidget {
+  static var routeName = Routes.deviceList;
+
+  final ApiService apiService;
+  final String token;
+
+  const DeviceListScreen({
+    Key? key,
+    required this.apiService,
+    required this.token,
+  }) : super(key: key);
+
+  @override
+  _DeviceListScreenState createState() => _DeviceListScreenState();
+}
+
+class _DeviceListScreenState extends State<DeviceListScreen> {
+  late Future<List<DeviceResponse>> _futureDevices;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureDevices = widget.apiService.fetchDevices(widget.token);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('My Devices')),
+      body: FutureBuilder<List<DeviceResponse>>(
+        future: _futureDevices,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return Center(child: Text('Error: ${snap.error}'));
+          }
+          final devices = snap.data!;
+          if (devices.isEmpty) {
+            return const Center(child: Text('No devices found.'));
+          }
+          return ListView.separated(
+            padding: EdgeInsets.all(16.w),
+            itemCount: devices.length,
+            separatorBuilder: (_, __) => SizedBox(height: 12.h),
+            itemBuilder: (ctx, i) {
+              final d = devices[i];
+              return ListTile(
+                title: Text(d.name),
+                subtitle: Text(d.type.toApi()),
+                trailing: const Icon(Icons.keyboard_arrow_right),
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  Routes.deviceDetail,
+                  arguments: {'device': d, 'token': widget.token},
+                ),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(
+          context,
+          Routes.registerDevice,
+          arguments: widget.token,
+        ),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/dosing_screen.dart ==========
+// lib/src/screens/dosing_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+class DosingScreen extends StatefulWidget {
+  static const routeName = Routes.dosing;
+
+  final ApiService api;
+  final String token;
+  final int deviceId;
+  const DosingScreen(
+      {Key? key,
+      required this.api,
+      required this.token,
+      required this.deviceId})
+      : super(key: key);
+
+  @override
+  _DosingScreenState createState() => _DosingScreenState();
+}
+
+class _DosingScreenState extends State<DosingScreen> {
+  late Future<List<DosingOperation>> _history;
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  void _loadHistory() {
+    _history = widget.api.fetchDosingHistory(widget.token, widget.deviceId);
+  }
+
+  Future<void> _runDosing() async {
+    setState(() => _running = true);
+    try {
+      final result =
+          await widget.api.executeDosing(widget.token, widget.deviceId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Dosing run: ${result.status}')),
+      );
+      _loadHistory();
+    } catch (err) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $err')),
+      );
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Dosing: ${widget.deviceId}')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: FutureBuilder<List<DosingOperation>>(
+          future: _history,
+          builder: (ctx, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snap.hasError) {
+              return Center(child: Text('Error: ${snap.error}'));
+            }
+            final ops = snap.data!;
+            if (ops.isEmpty) {
+              return const Center(child: Text('No dosing history.'));
+            }
+            return ListView.separated(
+              itemCount: ops.length,
+              separatorBuilder: (_, __) => SizedBox(height: 12.h),
+              itemBuilder: (ctx, i) {
+                final op = ops[i];
+                return ExpansionTile(
+                  title: Text(op.timestamp.toLocal().toString()),
+                  subtitle: Text(op.status),
+                  children: op.actions.map((a) {
+                    return ListTile(
+                      title: Text('${a.chemicalName} (Pump ${a.pumpNumber})'),
+                      subtitle: Text('${a.doseMl} ml – ${a.reasoning}'),
+                    );
+                  }).toList(),
+                );
+              },
+            );
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _running ? null : _runDosing,
+        icon: _running
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Icon(Icons.play_arrow),
+        label: const Text('Run Dosing'),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/farm_detail_screen.dart ==========
+// lib/src/ui/screens/farm_detail_screen.dart
+import 'package:flutter/material.dart';
+import 'package:community_charts_flutter/community_charts_flutter.dart'
+    as charts;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+class FarmDetailScreen extends StatelessWidget {
+  final int farmId;
+  const FarmDetailScreen({Key? key, required this.farmId}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    // Dummy data
+    final data = [
+      charts.Series<int, int>(
+        id: 'PH',
+        data: [6, 6, 6, 6],
+        domainFn: (v, i) => i!,
+        measureFn: (v, _) => v,
+      ),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: Text('Farm $farmId Details')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Sensor Trends',
+                style: Theme.of(context).textTheme.titleLarge),
+            SizedBox(height: 16.h),
+            Expanded(
+              child: charts.LineChart(data),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/farm_list_screen.dart ==========
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/providers/auth_provider.dart';
+import 'package:hydroleaf_app/src/providers/farm_provider.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:provider/provider.dart';
+
+class FarmListScreen extends StatefulWidget {
+  const FarmListScreen({Key? key}) : super(key: key);
+  @override
+  _FarmListScreenState createState() => _FarmListScreenState();
+}
+
+class _FarmListScreenState extends State<FarmListScreen> {
+  late FarmProvider _farmProv;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _farmProv = context.read<FarmProvider>();
+    if (_farmProv.farms.isEmpty) {
+      _farmProv.loadFarms();
+    }
+  }
+
+  Future<void> _refresh() => _farmProv.loadFarms();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Your Farms')),
+      body: Consumer<FarmProvider>(
+        builder: (ctx, prov, _) {
+          if (prov.farms.isEmpty) {
+            return prov.farms.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : const Center(child: Text('No farms registered.'));
+          }
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.builder(
+              padding: EdgeInsets.all(16.w),
+              itemCount: prov.farms.length,
+              itemBuilder: (ctx, i) {
+                final f = prov.farms[i];
+                return Card(
+                  elevation: 3,
+                  margin: EdgeInsets.symmetric(vertical: 8.h),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  child: ListTile(
+                    leading: Icon(Icons.park,
+                        color: Theme.of(context).colorScheme.primary),
+                    title: Text(f.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(f.location ?? 'No location'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      Routes.farmDetail,
+                      arguments: {'farmId': f.id},
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(
+          context,
+          Routes.registerFarm,
+          arguments: {
+            'apiService': context.read<ApiService>(),
+            'token': context.read<AuthProvider>().token!,
+          },
+        ),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/login_screen.dart ==========
+// lib/src/ui/screens/login_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/providers/auth_provider.dart';
+import 'package:provider/provider.dart';
+import '../../routes.dart';
+import '../widgets/primary_button.dart';
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({Key? key}) : super(key: key);
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await context
+          .read<AuthProvider>()
+          .login(_emailCtrl.text.trim(), _passCtrl.text);
+      Navigator.pushReplacementNamed(context, Routes.dashboard);
+    } catch (e) {
+      setState(() => _error = 'Login failed: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 24.w),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Spacer(),
+              Text(
+                'Hydroleaf',
+                style: Theme.of(context).textTheme.displayLarge,
+              ),
+              SizedBox(height: 32.h),
+              if (_error != null) ...[
+                Text(_error!, style: TextStyle(color: Colors.red)),
+                SizedBox(height: 12.h),
+              ],
+              TextFormField(
+                controller: _emailCtrl,
+                decoration: const InputDecoration(labelText: 'Email'),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) =>
+                    (v != null && v.contains('@')) ? null : 'Invalid email',
+              ),
+              SizedBox(height: 16.h),
+              TextFormField(
+                controller: _passCtrl,
+                decoration: const InputDecoration(labelText: 'Password'),
+                obscureText: true,
+                validator: (v) =>
+                    (v != null && v.length >= 6) ? null : 'Min 6 chars',
+              ),
+              SizedBox(height: 24.h),
+              PrimaryButton(
+                text: 'Login',
+                loading: _loading,
+                onTap: _login,
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, Routes.register),
+                child: const Text('Don’t have an account? Sign Up'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/register_device_screen.dart ==========
+// lib/src/ui/screens/register_device_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+import '../../routes.dart';
+
+class RegisterDeviceScreen extends StatefulWidget {
+  static const routeName = Routes.registerDevice;
+
+  final ApiService apiService;
+  final String token;
+
+  const RegisterDeviceScreen({
+    Key? key,
+    required this.apiService,
+    required this.token,
+  }) : super(key: key);
+
+  @override
+  State<RegisterDeviceScreen> createState() => _RegisterDeviceScreenState();
+}
+
+class _RegisterDeviceScreenState extends State<RegisterDeviceScreen> {
+  DeviceType _type = DeviceType.dosingUnit;
+  final _macCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _endpointCtrl = TextEditingController();
+  final _locCtrl = TextEditingController();
+
+  // for dosing
+  final List<PumpConfig> _pumps = [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _macCtrl.dispose();
+    _nameCtrl.dispose();
+    _endpointCtrl.dispose();
+    _locCtrl.dispose();
+    super.dispose();
+  }
+
+  void _addPump() {
+    setState(() {
+      _pumps.add(PumpConfig(
+        pumpNumber: _pumps.length + 1,
+        chemicalName: '',
+        chemicalDescription: null,
+      ));
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_macCtrl.text.isEmpty ||
+        _nameCtrl.text.isEmpty ||
+        _endpointCtrl.text.isEmpty) {
+      setState(() => _error = 'Please fill all required fields');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      if (_type == DeviceType.dosingUnit) {
+        if (_pumps.isEmpty) {
+          setState(() => _error = 'Add at least one pump configuration');
+          return;
+        }
+
+        final dto = DosingDeviceCreate(
+          macId: _macCtrl.text.trim(),
+          name: _nameCtrl.text.trim(),
+          httpEndpoint: _endpointCtrl.text.trim(),
+          locationDescription:
+              _locCtrl.text.trim().isEmpty ? null : _locCtrl.text.trim(),
+          farmId: null,
+          pumpConfigurations: _pumps
+              .map((p) => PumpConfig(
+                    pumpNumber: p.pumpNumber,
+                    chemicalName: p.chemicalName,
+                    chemicalDescription: p.chemicalDescription,
+                  ))
+              .toList(),
+        );
+
+        await widget.apiService.registerDosingDevice(widget.token, dto);
+      } else {
+        // sensor or other
+        final dto = SensorDeviceCreate(
+          macId: _macCtrl.text.trim(),
+          name: _nameCtrl.text.trim(),
+          type: _type,
+          httpEndpoint: _endpointCtrl.text.trim(),
+          locationDescription:
+              _locCtrl.text.trim().isEmpty ? null : _locCtrl.text.trim(),
+          farmId: null,
+          sensorParameters: {}, // you can add real fields here
+        );
+        await widget.apiService.registerSensorDevice(widget.token, dto);
+      }
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Register Device')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: ListView(
+          children: [
+            if (_error != null) ...[
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+              SizedBox(height: 12.h),
+            ],
+            DropdownButtonFormField<DeviceType>(
+              value: _type,
+              decoration: const InputDecoration(labelText: 'Device Type'),
+              items: DeviceType.values
+                  .map((d) => DropdownMenuItem(
+                        value: d,
+                        child: Text(d.toApi()),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _type = v!),
+            ),
+            SizedBox(height: 16.h),
+            TextField(
+              controller: _macCtrl,
+              decoration: const InputDecoration(labelText: 'MAC ID'),
+            ),
+            SizedBox(height: 16.h),
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            SizedBox(height: 16.h),
+            TextField(
+              controller: _endpointCtrl,
+              decoration: const InputDecoration(labelText: 'HTTP Endpoint'),
+            ),
+            SizedBox(height: 16.h),
+            TextField(
+              controller: _locCtrl,
+              decoration:
+                  const InputDecoration(labelText: 'Location (optional)'),
+            ),
+
+            // dosing-specific
+            if (_type == DeviceType.dosingUnit) ...[
+              SizedBox(height: 24.h),
+              Text('Pump Configurations',
+                  style: Theme.of(context).textTheme.titleMedium),
+              // Use List.generate so you have the index
+              ...List.generate(_pumps.length, (idx) {
+                final pump = _pumps[idx];
+                return Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        decoration: InputDecoration(
+                            labelText: 'Pump #${pump.pumpNumber}'),
+                        onChanged: (v) {
+                          setState(() {
+                            // replace the entire PumpConfig instance
+                            _pumps[idx] = PumpConfig(
+                              pumpNumber: pump.pumpNumber,
+                              chemicalName: v,
+                              chemicalDescription: pump.chemicalDescription,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                    if (idx == _pumps.length - 1)
+                      IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: _addPump,
+                      ),
+                  ],
+                );
+              }),
+              if (_pumps.isEmpty)
+                TextButton(
+                  onPressed: _addPump,
+                  child: const Text('Add Pump'),
+                ),
+            ],
+
+            SizedBox(height: 32.h),
+            _loading
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton(
+                    onPressed: _submit,
+                    child: const Text('Register Device'),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/register_farm_screen.dart ==========
+// lib/src/ui/screens/register_farm_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+import '../../routes.dart';
+
+class RegisterFarmScreen extends StatefulWidget {
+  static const routeName = Routes.registerFarm;
+
+  final ApiService apiService;
+  final String token;
+
+  const RegisterFarmScreen({
+    Key? key,
+    required this.apiService,
+    required this.token,
+  }) : super(key: key);
+
+  @override
+  State<RegisterFarmScreen> createState() => _RegisterFarmScreenState();
+}
+
+class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _locationCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    final dto = FarmCreate(
+      name: _nameCtrl.text.trim(),
+      location:
+          _locationCtrl.text.trim().isEmpty ? null : _locationCtrl.text.trim(),
+    );
+
+    try {
+      await widget.apiService.createFarm(widget.token, dto);
+      Navigator.pop(context, true);
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Register Farm')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              if (_error != null) ...[
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+                SizedBox(height: 12.h),
+              ],
+              TextFormField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: 'Farm Name'),
+                validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+              ),
+              SizedBox(height: 16.h),
+              TextFormField(
+                controller: _locationCtrl,
+                decoration:
+                    const InputDecoration(labelText: 'Location (optional)'),
+              ),
+              SizedBox(height: 24.h),
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _submit,
+                      child: const Text('Create Farm'),
+                    ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/register_screen.dart ==========
+// lib/src/screens/register_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+class RegisterScreen extends StatefulWidget {
+  static var routeName = Routes.register;
+
+  final ApiService apiService;
+  const RegisterScreen({Key? key, required this.apiService}) : super(key: key);
+
+  @override
+  _RegisterScreenState createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  bool _loading = false;
+  String? _errorMsg;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _lastNameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _loading = true;
+      _errorMsg = null;
+    });
+
+    final dto = UserCreate(
+      email: _emailCtrl.text.trim(),
+      password: _passwordCtrl.text,
+      firstName: _firstNameCtrl.text.trim(),
+      lastName: _lastNameCtrl.text.trim(),
+    );
+
+    try {
+      await widget.apiService.signup(dto);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Registration successful! Please log in.')),
+      );
+      Navigator.pushReplacementNamed(context, Routes.login);
+    } catch (err) {
+      setState(() {
+        _errorMsg = err.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Register')),
+      body: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 16.h),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              if (_errorMsg != null) ...[
+                Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
+                SizedBox(height: 12.h),
+              ],
+              TextFormField(
+                controller: _firstNameCtrl,
+                decoration: const InputDecoration(labelText: 'First Name'),
+                validator: (v) => (v?.isEmpty ?? true) ? 'Required' : null,
+              ),
+              SizedBox(height: 12.h),
+              TextFormField(
+                controller: _lastNameCtrl,
+                decoration: const InputDecoration(labelText: 'Last Name'),
+              ),
+              SizedBox(height: 12.h),
+              TextFormField(
+                controller: _emailCtrl,
+                decoration: const InputDecoration(labelText: 'Email'),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) =>
+                    (v != null && v.contains('@')) ? null : 'Invalid email',
+              ),
+              SizedBox(height: 12.h),
+              TextFormField(
+                controller: _passwordCtrl,
+                decoration: const InputDecoration(labelText: 'Password'),
+                obscureText: true,
+                validator: (v) =>
+                    (v != null && v.length >= 6) ? null : 'Min 6 chars',
+              ),
+              SizedBox(height: 24.h),
+              _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ElevatedButton(
+                      onPressed: _submit,
+                      child: const Text('Register'),
+                    ),
+              SizedBox(height: 16.h),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pushReplacementNamed(context, Routes.login),
+                child: const Text('Already have an account? Log in'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/sensor_screen.dart ==========
+// lib/src/screens/sensor_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:hydroleaf_app/src/routes.dart';
+import 'package:hydroleaf_app/src/services/api_service.dart';
+import 'package:hydroleaf_app/src/services/models.dart';
+
+class SensorScreen extends StatefulWidget {
+  static const routeName = Routes.sensor;
+
+  final ApiService api;
+  final String token;
+  final DeviceResponse device;
+
+  const SensorScreen({
+    Key? key,
+    required this.api,
+    required this.token,
+    required this.device,
+  }) : super(key: key);
+
+  @override
+  _SensorScreenState createState() => _SensorScreenState();
+}
+
+class _SensorScreenState extends State<SensorScreen> {
+  late Future<SensorReading> _reading;
+
+  @override
+  void initState() {
+    super.initState();
+    _reading = widget.api.fetchSensorData(widget.token, widget.device.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('Sensor: ${widget.device.name}')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: FutureBuilder<SensorReading>(
+          future: _reading,
+          builder: (ctx, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snap.hasError) {
+              return Center(child: Text('Error: ${snap.error}'));
+            }
+            final r = snap.data!;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InfoRow(label: 'Type', value: r.readingType),
+                InfoRow(label: 'Value', value: r.value.toString()),
+                InfoRow(
+                  label: 'Time',
+                  value: r.timestamp.toLocal().toString(),
+                ),
+                if (r.location != null)
+                  InfoRow(label: 'Location', value: r.location!),
+                const Spacer(),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                  onPressed: () => setState(() {
+                    _reading = widget.api
+                        .fetchSensorData(widget.token, widget.device.id);
+                  }),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class InfoRow extends StatelessWidget {
+  final String label, value;
+  const InfoRow({Key? key, required this.label, required this.value})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 6.h),
+      child: Row(
+        children: [
+          SizedBox(
+              width: 100.w,
+              child: Text('$label:',
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/screens/settings_screen.dart ==========
+// lib/src/ui/screens/settings_screen.dart
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: Padding(
+        padding: EdgeInsets.all(16.w),
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.person),
+              title: const Text('Profile'),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout'),
+              onTap: () {},
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/widgets/primary_button.dart ==========
+// lib/src/ui/widgets/primary_button.dart
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+class PrimaryButton extends StatelessWidget {
+  final String text;
+  final VoidCallback onTap;
+  final bool loading;
+
+  const PrimaryButton({
+    Key? key,
+    required this.text,
+    required this.onTap,
+    this.loading = false,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      onPressed: loading ? null : onTap,
+      child: loading
+          ? const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Text(text),
+      style: ElevatedButton.styleFrom(
+        minimumSize: Size(double.infinity, 48.h),
+      ),
+    );
+  }
+}
+
+
+========== lib/src/ui/widgets/summary_card.dart ==========
+// lib/src/ui/widgets/summary_card.dart
+import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+class SummaryCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const SummaryCard({
+    Key? key,
+    required this.title,
+    required this.value,
+    required this.icon,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Theme.of(context).colorScheme.primary.withOpacity(0.8),
+            Theme.of(context).colorScheme.primaryContainer,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.symmetric(vertical: 20.h, horizontal: 16.w),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.white24,
+            child: Icon(icon, size: 28, color: Colors.white),
+          ),
+          SizedBox(width: 16.w),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium!
+                      .copyWith(color: Colors.white70)),
+              SizedBox(height: 4.h),
+              Text(value,
+                  style: Theme.of(context).textTheme.headlineSmall!.copyWith(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+========== lib/src/providers/auth_provider.dart ==========
+// lib/src/providers/auth_provider.dart
+import 'package:flutter/foundation.dart';
+import '../services/api_service.dart';
+
+class AuthProvider extends ChangeNotifier {
+  final ApiService apiService;
+  String? _token;
+
+  AuthProvider({required this.apiService});
+
+  bool get isAuthenticated => _token != null;
+  String? get token => _token;
+
+  Future<void> login(String email, String password) async {
+    _token = await apiService.login(email, password);
+    notifyListeners();
+  }
+}
+
+
+========== lib/src/providers/farm_provider.dart ==========
+// lib/src/providers/farm_provider.dart
+import 'package:flutter/foundation.dart';
+import '../services/api_service.dart';
+import '../services/models.dart';
+
+class FarmProvider extends ChangeNotifier {
+  final ApiService apiService;
+  String token;
+  List<Farm> _farms = [];
+
+  FarmProvider({required this.apiService, required this.token});
+
+  List<Farm> get farms => _farms;
+  void updateToken(String newToken) {
+    if (newToken == token) return;
+    token = newToken;
+    notifyListeners();
+  }
+
+  Future<void> loadFarms() async {
+    _farms = await apiService.fetchFarms(token);
+    notifyListeners();
+  }
+}
+
+
+========== lib/src/services/api_service.dart ==========
+// lib/src/services/api_service.dart
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'models.dart';
+
+class ApiService {
+  final String baseUrl;
+  final Duration _timeout = const Duration(seconds: 10);
+
+  ApiService({required this.baseUrl});
+
+  Map<String, String> _jsonHeaders([String? token]) {
+    final headers = {'Content-Type': 'application/json'};
+    if (token != null) headers['Authorization'] = 'Bearer $token';
+    return headers;
+  }
+
+  // ─── AUTH ───────────────────────────────────────────────────────────────
+
+  /// Returns access token
+  Future<String> login(String email, String password) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/login');
+    final resp = await http.post(uri,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'username': email, 'password': password}).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      final data = json.decode(resp.body);
+      return data['access_token'] as String;
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<User> signup(UserCreate dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/auth/signup');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return User.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  // ─── FARMS ──────────────────────────────────────────────────────────────
+
+  Future<List<Farm>> fetchFarms(String token) async {
+    final uri = Uri.parse('$baseUrl/api/v1/farms');
+    final resp =
+        await http.get(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      final list = json.decode(resp.body) as List;
+      return list.map((e) => Farm.fromJson(e)).toList();
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<Farm> createFarm(String token, FarmCreate dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/farms');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(token), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return Farm.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<void> deleteFarm(String token, int farmId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/farms/$farmId');
+    final resp =
+        await http.delete(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, resp.body);
+    }
+  }
+
+  // ─── DEVICES ────────────────────────────────────────────────────────────
+
+  Future<List<DeviceResponse>> fetchDevices(String token) async {
+    final uri = Uri.parse('$baseUrl/api/v1/devices');
+    final resp =
+        await http.get(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      final list = json.decode(resp.body) as List;
+      return list.map((e) => DeviceResponse.fromJson(e)).toList();
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<DeviceResponse> registerDosingDevice(
+      String token, DosingDeviceCreate dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/devices/dosing');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(token), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return DeviceResponse.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<DeviceResponse> registerSensorDevice(
+      String token, SensorDeviceCreate dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/devices/sensor');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(token), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return DeviceResponse.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<SensorReading> fetchSensorData(String token, int deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/devices/sensoreading/$deviceId');
+    final resp =
+        await http.get(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      return SensorReading.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  // ─── DOSING ─────────────────────────────────────────────────────────────
+
+  Future<DosingOperation> executeDosing(String token, int deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/dosing/execute/$deviceId');
+    final resp =
+        await http.post(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      return DosingOperation.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<void> cancelDosing(String token, int deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/dosing/cancel/$deviceId');
+    final resp =
+        await http.post(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode != 200) {
+      throw ApiException(resp.statusCode, resp.body);
+    }
+  }
+
+  Future<List<DosingOperation>> fetchDosingHistory(
+      String token, int deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/dosing/history/$deviceId');
+    final resp =
+        await http.get(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      final list = json.decode(resp.body) as List;
+      return list.map((e) => DosingOperation.fromJson(e)).toList();
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<DosingProfile> createDosingProfile(
+      String token, DosingProfileCreate dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/dosing/profile');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(token), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200 || resp.statusCode == 201) {
+      return DosingProfile.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  Future<List<DosingProfile>> fetchDosingProfiles(
+      String token, int deviceId) async {
+    final uri = Uri.parse('$baseUrl/api/v1/config/dosing-profiles/$deviceId');
+    final resp =
+        await http.get(uri, headers: _jsonHeaders(token)).timeout(_timeout);
+    if (resp.statusCode == 200) {
+      final list = json.decode(resp.body) as List;
+      return list.map((e) => DosingProfile.fromJson(e)).toList();
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+
+  // ─── SUPPLY CHAIN ───────────────────────────────────────────────────────
+
+  Future<SupplyChainAnalysis> analyzeSupplyChain(
+      String token, TransportRequest dto) async {
+    final uri = Uri.parse('$baseUrl/api/v1/supply_chain');
+    final resp = await http
+        .post(uri, headers: _jsonHeaders(token), body: jsonEncode(dto.toJson()))
+        .timeout(_timeout);
+    if (resp.statusCode == 200) {
+      return SupplyChainAnalysis.fromJson(json.decode(resp.body));
+    }
+    throw ApiException(resp.statusCode, resp.body);
+  }
+}
+
+/// Thrown for any non-200 response.
+class ApiException implements Exception {
+  final int statusCode;
+  final String body;
+  ApiException(this.statusCode, this.body);
+  @override
+  String toString() =>
+      'ApiException($statusCode): ${body.length > 200 ? '${body.substring(0, 200)}…' : body}';
+}
+
+
+========== lib/src/services/models.dart ==========
+// lib/src/services/models.dart
+
+/// ─── AUTH & USER ─────────────────────────────────────────────────────────
+
+class User {
+  final int id;
+  final String email;
+  final String role;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  User({
+    required this.id,
+    required this.email,
+    required this.role,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory User.fromJson(Map<String, dynamic> json) => User(
+        id: json['id'] as int,
+        email: json['email'] as String,
+        role: json['role'] as String,
+        createdAt: json['created_at'] != null
+            ? DateTime.parse(json['created_at'] as String)
+            : null,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'email': email,
+        'role': role,
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      };
+}
+
+class UserCreate {
+  final String email;
+  final String password;
+  final String? firstName;
+  final String? lastName;
+  final String? phone;
+  final String? address;
+  final String? city;
+  final String? state;
+  final String? country;
+  final String? postalCode;
+
+  UserCreate({
+    required this.email,
+    required this.password,
+    this.firstName,
+    this.lastName,
+    this.phone,
+    this.address,
+    this.city,
+    this.state,
+    this.country,
+    this.postalCode,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'email': email,
+        'password': password,
+        if (firstName != null) 'first_name': firstName,
+        if (lastName != null) 'last_name': lastName,
+        if (phone != null) 'phone': phone,
+        if (address != null) 'address': address,
+        if (city != null) 'city': city,
+        if (state != null) 'state': state,
+        if (country != null) 'country': country,
+        if (postalCode != null) 'postal_code': postalCode,
+      };
+}
+
+/// ─── FARM ────────────────────────────────────────────────────────────────
+
+class Farm {
+  final int id;
+  final String name;
+  final String? location;
+  final int? userId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  Farm({
+    required this.id,
+    required this.name,
+    this.location,
+    this.userId,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory Farm.fromJson(Map<String, dynamic> json) => Farm(
+        id: json['id'] as int,
+        name: json['name'] as String,
+        location: json['location'] as String?,
+        userId: json['user_id'] as int?,
+        createdAt: json['created_at'] != null
+            ? DateTime.parse(json['created_at'] as String)
+            : null,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'location': location,
+        'user_id': userId,
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      };
+}
+
+class FarmCreate {
+  final String name;
+  final String? location;
+
+  FarmCreate({required this.name, this.location});
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'location': location,
+      };
+}
+
+/// ─── DEVICES ─────────────────────────────────────────────────────────────
+
+enum DeviceType {
+  dosingUnit,
+  phTdsSensor,
+  environmentSensor,
+  valveController,
+}
+
+extension DeviceTypeExt on DeviceType {
+  String toApi() {
+    switch (this) {
+      case DeviceType.dosingUnit:
+        return 'dosing_unit';
+      case DeviceType.phTdsSensor:
+        return 'ph_tds_sensor';
+      case DeviceType.environmentSensor:
+        return 'environment_sensor';
+      case DeviceType.valveController:
+        return 'valve_controller';
+    }
+  }
+
+  static DeviceType fromApi(String s) {
+    switch (s) {
+      case 'dosing_unit':
+        return DeviceType.dosingUnit;
+      case 'ph_tds_sensor':
+        return DeviceType.phTdsSensor;
+      case 'environment_sensor':
+        return DeviceType.environmentSensor;
+      case 'valve_controller':
+        return DeviceType.valveController;
+      default:
+        throw ArgumentError('Unknown device type: $s');
+    }
+  }
+}
+
+class PumpConfig {
+  final int pumpNumber;
+  final String chemicalName;
+  final String? chemicalDescription;
+
+  PumpConfig({
+    required this.pumpNumber,
+    required this.chemicalName,
+    this.chemicalDescription,
+  });
+
+  factory PumpConfig.fromJson(Map<String, dynamic> json) => PumpConfig(
+        pumpNumber: json['pump_number'] as int,
+        chemicalName: json['chemical_name'] as String,
+        chemicalDescription: json['chemical_description'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'pump_number': pumpNumber,
+        'chemical_name': chemicalName,
+        'chemical_description': chemicalDescription,
+      };
+}
+
+class ValveConfig {
+  final int valveId;
+  final String? name;
+
+  ValveConfig({required this.valveId, this.name});
+
+  factory ValveConfig.fromJson(Map<String, dynamic> json) => ValveConfig(
+        valveId: json['valve_id'] as int,
+        name: json['name'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'valve_id': valveId,
+        'name': name,
+      };
+}
+
+class DeviceResponse {
+  final int id;
+  final String macId;
+  final String name;
+  final DeviceType type;
+  final String httpEndpoint;
+  final String? locationDescription;
+  final bool isActive;
+  final DateTime? lastSeen;
+  final String? firmwareVersion;
+  final int? farmId;
+  final int? userId;
+  final List<PumpConfig>? pumpConfigurations;
+  final Map<String, dynamic>? sensorParameters;
+  final List<ValveConfig>? valveConfigurations;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  DeviceResponse({
+    required this.id,
+    required this.macId,
+    required this.name,
+    required this.type,
+    required this.httpEndpoint,
+    this.locationDescription,
+    required this.isActive,
+    this.lastSeen,
+    this.firmwareVersion,
+    this.farmId,
+    this.userId,
+    this.pumpConfigurations,
+    this.sensorParameters,
+    this.valveConfigurations,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory DeviceResponse.fromJson(Map<String, dynamic> json) => DeviceResponse(
+        id: json['id'] as int,
+        macId: json['mac_id'] as String,
+        name: json['name'] as String,
+        type: DeviceTypeExt.fromApi(json['type'] as String),
+        httpEndpoint: json['http_endpoint'] as String,
+        locationDescription: json['location_description'] as String?,
+        isActive: json['is_active'] as bool,
+        lastSeen: json['last_seen'] != null
+            ? DateTime.parse(json['last_seen'] as String)
+            : null,
+        firmwareVersion: json['firmware_version'] as String?,
+        farmId: json['farm_id'] as int?,
+        userId: json['user_id'] as int?,
+        pumpConfigurations: json['pump_configurations'] != null
+            ? (json['pump_configurations'] as List)
+                .map((e) => PumpConfig.fromJson(e))
+                .toList()
+            : null,
+        sensorParameters: json['sensor_parameters'] as Map<String, dynamic>?,
+        valveConfigurations: json['valve_configurations'] != null
+            ? (json['valve_configurations'] as List)
+                .map((e) => ValveConfig.fromJson(e))
+                .toList()
+            : null,
+        createdAt: json['created_at'] != null
+            ? DateTime.parse(json['created_at'] as String)
+            : null,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'mac_id': macId,
+        'name': name,
+        'type': type.toApi(),
+        'http_endpoint': httpEndpoint,
+        'location_description': locationDescription,
+        'is_active': isActive,
+        'last_seen': lastSeen?.toIso8601String(),
+        'firmware_version': firmwareVersion,
+        'farm_id': farmId,
+        'user_id': userId,
+        'pump_configurations':
+            pumpConfigurations?.map((e) => e.toJson()).toList(),
+        'sensor_parameters': sensorParameters,
+        'valve_configurations':
+            valveConfigurations?.map((e) => e.toJson()).toList(),
+        'created_at': createdAt?.toIso8601String(),
+        'updated_at': updatedAt?.toIso8601String(),
+      };
+}
+
+abstract class DeviceCreateBase {
+  final String macId;
+  final String name;
+  final DeviceType type;
+  final String httpEndpoint;
+  final String? locationDescription;
+  final int? farmId;
+
+  DeviceCreateBase({
+    required this.macId,
+    required this.name,
+    required this.type,
+    required this.httpEndpoint,
+    this.locationDescription,
+    this.farmId,
+  });
+
+  Map<String, dynamic> toJsonBase() => {
+        'mac_id': macId,
+        'name': name,
+        'type': type.toApi(),
+        'http_endpoint': httpEndpoint,
+        'location_description': locationDescription,
+        'farm_id': farmId,
+      };
+}
+
+class DosingDeviceCreate extends DeviceCreateBase {
+  final List<PumpConfig> pumpConfigurations;
+
+  DosingDeviceCreate({
+    required String macId,
+    required String name,
+    required String httpEndpoint,
+    String? locationDescription,
+    int? farmId,
+    required this.pumpConfigurations,
+  }) : super(
+            macId: macId,
+            name: name,
+            type: DeviceType.dosingUnit,
+            httpEndpoint: httpEndpoint,
+            locationDescription: locationDescription,
+            farmId: farmId);
+
+  Map<String, dynamic> toJson() => {
+        ...toJsonBase(),
+        'pump_configurations':
+            pumpConfigurations.map((e) => e.toJson()).toList(),
+      };
+}
+
+class SensorDeviceCreate extends DeviceCreateBase {
+  final Map<String, dynamic> sensorParameters;
+
+  SensorDeviceCreate({
+    required String macId,
+    required String name,
+    required DeviceType type,
+    required String httpEndpoint,
+    String? locationDescription,
+    int? farmId,
+    required this.sensorParameters,
+  }) : super(
+            macId: macId,
+            name: name,
+            type: type,
+            httpEndpoint: httpEndpoint,
+            locationDescription: locationDescription,
+            farmId: farmId);
+
+  Map<String, dynamic> toJson() => {
+        ...toJsonBase(),
+        'sensor_parameters': sensorParameters,
+      };
+}
+
+class ValveDeviceCreate extends DeviceCreateBase {
+  final List<ValveConfig> valveConfigurations;
+
+  ValveDeviceCreate({
+    required String macId,
+    required String name,
+    required String httpEndpoint,
+    String? locationDescription,
+    int? farmId,
+    required this.valveConfigurations,
+  }) : super(
+            macId: macId,
+            name: name,
+            type: DeviceType.valveController,
+            httpEndpoint: httpEndpoint,
+            locationDescription: locationDescription,
+            farmId: farmId);
+
+  Map<String, dynamic> toJson() => {
+        ...toJsonBase(),
+        'valve_configurations':
+            valveConfigurations.map((e) => e.toJson()).toList(),
+      };
+}
+
+/// ─── DOSING PROFILES & OPERATIONS ────────────────────────────────────────
+
+class DosingProfile {
+  final int id;
+  final int deviceId;
+  final String plantName;
+  final String plantType;
+  final String growthStage;
+  final DateTime seedingDate;
+  final double targetPhMin;
+  final double targetPhMax;
+  final double targetTdsMin;
+  final double targetTdsMax;
+  final Map<String, dynamic> dosingSchedule;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  DosingProfile({
+    required this.id,
+    required this.deviceId,
+    required this.plantName,
+    required this.plantType,
+    required this.growthStage,
+    required this.seedingDate,
+    required this.targetPhMin,
+    required this.targetPhMax,
+    required this.targetTdsMin,
+    required this.targetTdsMax,
+    required this.dosingSchedule,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory DosingProfile.fromJson(Map<String, dynamic> json) => DosingProfile(
+        id: json['id'] as int,
+        deviceId: json['device_id'] as int,
+        plantName: json['plant_name'] as String,
+        plantType: json['plant_type'] as String,
+        growthStage: json['growth_stage'] as String,
+        seedingDate: DateTime.parse(json['seeding_date'] as String),
+        targetPhMin: (json['target_ph_min'] as num).toDouble(),
+        targetPhMax: (json['target_ph_max'] as num).toDouble(),
+        targetTdsMin: (json['target_tds_min'] as num).toDouble(),
+        targetTdsMax: (json['target_tds_max'] as num).toDouble(),
+        dosingSchedule: json['dosing_schedule'] as Map<String, dynamic>,
+        createdAt: json['created_at'] != null
+            ? DateTime.parse(json['created_at'] as String)
+            : null,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'device_id': deviceId,
+        'plant_name': plantName,
+        'plant_type': plantType,
+        'growth_stage': growthStage,
+        'seeding_date': seedingDate.toIso8601String(),
+        'target_ph_min': targetPhMin,
+        'target_ph_max': targetPhMax,
+        'target_tds_min': targetTdsMin,
+        'target_tds_max': targetTdsMax,
+        'dosing_schedule': dosingSchedule,
+        'created_at': createdAt?.toIso8601String(),
+        'updated_at': updatedAt?.toIso8601String(),
+      };
+}
+
+class DosingProfileCreate {
+  final int deviceId;
+  final String plantName;
+  final String plantType;
+  final String growthStage;
+  final DateTime seedingDate;
+  final double targetPhMin;
+  final double targetPhMax;
+  final double targetTdsMin;
+  final double targetTdsMax;
+  final Map<String, dynamic> dosingSchedule;
+
+  DosingProfileCreate({
+    required this.deviceId,
+    required this.plantName,
+    required this.plantType,
+    required this.growthStage,
+    required this.seedingDate,
+    required this.targetPhMin,
+    required this.targetPhMax,
+    required this.targetTdsMin,
+    required this.targetTdsMax,
+    required this.dosingSchedule,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'device_id': deviceId,
+        'plant_name': plantName,
+        'plant_type': plantType,
+        'growth_stage': growthStage,
+        'seeding_date': seedingDate.toIso8601String(),
+        'target_ph_min': targetPhMin,
+        'target_ph_max': targetPhMax,
+        'target_tds_min': targetTdsMin,
+        'target_tds_max': targetTdsMax,
+        'dosing_schedule': dosingSchedule,
+      };
+}
+
+class DosingAction {
+  final int pumpNumber;
+  final String chemicalName;
+  final double doseMl;
+  final String reasoning;
+
+  DosingAction({
+    required this.pumpNumber,
+    required this.chemicalName,
+    required this.doseMl,
+    required this.reasoning,
+  });
+
+  factory DosingAction.fromJson(Map<String, dynamic> json) => DosingAction(
+        pumpNumber: json['pump_number'] as int,
+        chemicalName: json['chemical_name'] as String,
+        doseMl: (json['dose_ml'] as num).toDouble(),
+        reasoning: json['reasoning'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'pump_number': pumpNumber,
+        'chemical_name': chemicalName,
+        'dose_ml': doseMl,
+        'reasoning': reasoning,
+      };
+}
+
+class DosingOperation {
+  final int deviceId;
+  final String operationId;
+  final List<DosingAction> actions;
+  final String status;
+  final DateTime timestamp;
+
+  DosingOperation({
+    required this.deviceId,
+    required this.operationId,
+    required this.actions,
+    required this.status,
+    required this.timestamp,
+  });
+
+  factory DosingOperation.fromJson(Map<String, dynamic> json) =>
+      DosingOperation(
+        deviceId: json['device_id'] as int,
+        operationId: json['operation_id'] as String,
+        actions: (json['actions'] as List)
+            .map((e) => DosingAction.fromJson(e))
+            .toList(),
+        status: json['status'] as String,
+        timestamp: DateTime.parse(json['timestamp'] as String),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'device_id': deviceId,
+        'operation_id': operationId,
+        'actions': actions.map((a) => a.toJson()).toList(),
+        'status': status,
+        'timestamp': timestamp.toIso8601String(),
+      };
+}
+
+class SensorReading {
+  final int deviceId;
+  final String readingType;
+  final double value;
+  final DateTime timestamp;
+  final String? location;
+
+  SensorReading({
+    required this.deviceId,
+    required this.readingType,
+    required this.value,
+    required this.timestamp,
+    this.location,
+  });
+
+  factory SensorReading.fromJson(Map<String, dynamic> json) => SensorReading(
+        deviceId: json['device_id'] as int,
+        readingType: json['reading_type'] as String,
+        value: (json['value'] as num).toDouble(),
+        timestamp: DateTime.parse(json['timestamp'] as String),
+        location: json['location'] as String?,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'device_id': deviceId,
+        'reading_type': readingType,
+        'value': value,
+        'timestamp': timestamp.toIso8601String(),
+        'location': location,
+      };
+}
+
+/// ─── SUPPLY CHAIN ────────────────────────────────────────────────────────
+
+class TransportRequest {
+  final String origin;
+  final String destination;
+  final String produceType;
+  final double weightKg;
+  final String transportMode;
+
+  TransportRequest({
+    required this.origin,
+    required this.destination,
+    required this.produceType,
+    required this.weightKg,
+    this.transportMode = 'railway',
+  });
+
+  Map<String, dynamic> toJson() => {
+        'origin': origin,
+        'destination': destination,
+        'produce_type': produceType,
+        'weight_kg': weightKg,
+        'transport_mode': transportMode,
+      };
+}
+
+class SupplyChainAnalysis {
+  final String origin;
+  final String destination;
+  final String produceType;
+  final double weightKg;
+  final String transportMode;
+  final double distanceKm;
+  final double costPerKg;
+  final double totalCost;
+  final double estimatedTimeHours;
+  final double marketPricePerKg;
+  final double netProfitPerKg;
+  final String finalRecommendation;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  SupplyChainAnalysis({
+    required this.origin,
+    required this.destination,
+    required this.produceType,
+    required this.weightKg,
+    required this.transportMode,
+    required this.distanceKm,
+    required this.costPerKg,
+    required this.totalCost,
+    required this.estimatedTimeHours,
+    required this.marketPricePerKg,
+    required this.netProfitPerKg,
+    required this.finalRecommendation,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  factory SupplyChainAnalysis.fromJson(Map<String, dynamic> json) =>
+      SupplyChainAnalysis(
+        origin: json['origin'] as String,
+        destination: json['destination'] as String,
+        produceType: json['produce_type'] as String,
+        weightKg: (json['weight_kg'] as num).toDouble(),
+        transportMode: json['transport_mode'] as String,
+        distanceKm: (json['distance_km'] as num).toDouble(),
+        costPerKg: (json['cost_per_kg'] as num).toDouble(),
+        totalCost: (json['total_cost'] as num).toDouble(),
+        estimatedTimeHours: (json['estimated_time_hours'] as num).toDouble(),
+        marketPricePerKg: (json['market_price_per_kg'] as num).toDouble(),
+        netProfitPerKg: (json['net_profit_per_kg'] as num).toDouble(),
+        finalRecommendation: json['final_recommendation'] as String,
+        createdAt: json['created_at'] != null
+            ? DateTime.parse(json['created_at'] as String)
+            : null,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'origin': origin,
+        'destination': destination,
+        'produce_type': produceType,
+        'weight_kg': weightKg,
+        'transport_mode': transportMode,
+        'distance_km': distanceKm,
+        'cost_per_kg': costPerKg,
+        'total_cost': totalCost,
+        'estimated_time_hours': estimatedTimeHours,
+        'market_price_per_kg': marketPricePerKg,
+        'net_profit_per_kg': netProfitPerKg,
+        'final_recommendation': finalRecommendation,
+        if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+        if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      };
+}
+
+
